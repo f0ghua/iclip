@@ -1,0 +1,10 @@
+[smb]
+server = 172.21.67.235
+share = Send2
+path = PD-6-4
+username = 11867
+password = YOUR_PASSWORD_HERE
+workgroup = sdc
+
+[monitor]
+interval = 1.0

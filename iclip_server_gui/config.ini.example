@@ -1,0 +1,4 @@
+[monitor]
+watch_path = \\172.21.68.235\Receive2\PD-6-4
+interval = 1.0
+pattern = clipboard_*.tar.gz

@@ -17,14 +17,33 @@ iclip is a tool for transferring clipboard content from an internal Ubuntu machi
 
 ## Components
 
+### Terminal Version (Original)
+
 | Component | Platform | Language | Description |
 |-----------|----------|----------|-------------|
 | iclip_client | Ubuntu/Linux | C | Monitors clipboard, packages and uploads via SMB |
 | iclip_server | Windows | Python 3 | Monitors shared directory, extracts and sets clipboard |
 
+### GUI Version (New)
+
+| Component | Platform | Language | Description |
+|-----------|----------|----------|-------------|
+| iclip_client_gui | Ubuntu/Linux | Go + Fyne | GUI client with clipboard monitoring and SMB upload |
+| iclip_server_gui | Windows | Go + Fyne | GUI server with directory monitoring and clipboard operations |
+
+**Advantages of GUI Version:**
+- Zero runtime dependencies (single executable file)
+- Cross-platform compilation support
+- Modern native GUI interface
+- Built-in settings dialog
+
+See [doc/compile.md](doc/compile.md) for build instructions.
+
 ## Requirements
 
-### Ubuntu (iclip_client)
+### Terminal Version
+
+#### Ubuntu (iclip_client)
 
 - GCC compiler (for building)
 - System tools:
@@ -36,7 +55,7 @@ iclip is a tool for transferring clipboard content from an internal Ubuntu machi
 sudo apt install xclip smbclient
 ```
 
-### Windows (iclip_server)
+#### Windows (iclip_server)
 
 - Python 3.8+
 - pyperclip package
@@ -45,9 +64,26 @@ sudo apt install xclip smbclient
 pip install pyperclip
 ```
 
+### GUI Version
+
+#### Ubuntu (iclip_client_gui)
+
+- Go 1.21+ (for building)
+- System tools (runtime):
+  - `xclip` - clipboard operations
+  - `smbclient` - SMB file transfer
+- Fyne dependencies: `sudo apt install libgl1-mesa-dev xorg-dev`
+
+#### Windows (iclip_server_gui)
+
+- No runtime dependencies (single executable)
+- Can be cross-compiled from Linux
+
 ## Installation
 
-### Ubuntu Client
+### Terminal Version
+
+#### Ubuntu Client
 
 1. Copy the `iclip_client` directory to the Ubuntu machine
 
@@ -71,7 +107,7 @@ pip install pyperclip
    interval = 1.0
    ```
 
-### Windows Server
+#### Windows Server
 
 1. Copy the `iclip_server` directory to the Windows machine
 
@@ -88,29 +124,72 @@ pip install pyperclip
    pattern = clipboard_*.tar.gz
    ```
 
+### GUI Version
+
+See [doc/compile.md](doc/compile.md) for detailed build instructions.
+
+#### Quick Start (Ubuntu Client)
+
+```bash
+cd iclip_client_gui
+go mod tidy
+go build -o iclip_client_gui
+# Edit config.ini with your SMB settings
+./iclip_client_gui
+```
+
+#### Quick Start (Windows Server - Cross-compile from Linux)
+
+```bash
+cd iclip_server_gui
+go mod tidy
+CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc GOOS=windows GOARCH=amd64 \
+    go build -ldflags="-s -w -H=windowsgui" -o iclip_server_gui.exe
+# Copy iclip_server_gui.exe and config.ini to Windows
+```
+
 ## Usage
 
-### Start the Server (Windows)
+### Terminal Version
+
+#### Start the Server (Windows)
 
 ```cmd
 cd iclip_server
 python iclip_server.py
 ```
 
-### Start the Client (Ubuntu)
+#### Start the Client (Ubuntu)
 
 ```bash
 cd iclip_client
 ./iclip_client
 ```
 
-### Keyboard Controls
+#### Keyboard Controls (Terminal Version)
 
 | Key | Action |
 |-----|--------|
 | `q` | Quit |
 | `p` | Pause/Resume monitoring |
 | `r` | Force refresh (client only) |
+
+### GUI Version
+
+Simply double-click the executable or run from command line:
+
+```bash
+# Ubuntu Client
+./iclip_client_gui
+
+# Windows Server
+iclip_server_gui.exe
+```
+
+GUI controls are available via buttons in the interface:
+- **Pause/Resume**: Toggle monitoring
+- **Refresh**: Force clipboard sync (client only)
+- **Settings**: Configure SMB/monitor settings
 
 ## How It Works
 
