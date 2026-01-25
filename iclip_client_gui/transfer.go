@@ -92,9 +92,6 @@ func createTarGz(archivePath string, sourceDir string) error {
 	tarWriter := tar.NewWriter(gzWriter)
 	defer tarWriter.Close()
 
-	// Get the base name for the archive
-	baseName := filepath.Base(sourceDir)
-
 	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
