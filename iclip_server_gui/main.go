@@ -36,6 +36,7 @@ func main() {
 
 	// Create Fyne app
 	fyneApp := app.New()
+	fyneApp.SetIcon(AppIcon)
 
 	// Create clipboard manager
 	clipboardMgr := NewClipboardManager()

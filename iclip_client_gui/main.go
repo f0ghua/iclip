@@ -52,6 +52,7 @@ func main() {
 
 	// Create Fyne app
 	fyneApp := app.New()
+	fyneApp.SetIcon(AppIcon)
 
 	// Create application
 	application := &Application{

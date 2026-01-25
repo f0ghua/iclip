@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
@@ -13,37 +15,45 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// Status colors
+var (
+	colorRunning  = color.NRGBA{R: 76, G: 175, B: 80, A: 255}  // Green
+	colorSyncing  = color.NRGBA{R: 255, G: 193, B: 7, A: 255}  // Yellow/Amber
+	colorError    = color.NRGBA{R: 244, G: 67, B: 54, A: 255}  // Red
+	colorPaused   = color.NRGBA{R: 158, G: 158, B: 158, A: 255} // Gray
+)
+
 // UIState holds the current UI state
 type UIState struct {
-	Status          string
-	LastSync        time.Time
-	ClipboardText   string
-	ErrorMessage    string
-	Paused          bool
+	Status        string
+	LastSync      time.Time
+	ClipboardText string
+	ErrorMessage  string
+	Paused        bool
 }
 
 // AppUI holds all UI components
 type AppUI struct {
-	Window          fyne.Window
-	StatusLabel     *widget.Label
-	StatusIcon      *widget.Icon
-	LastSyncLabel   *widget.Label
-	ClipboardText   *widget.Label
-	ErrorLabel      *widget.Label
-	PauseButton     *widget.Button
-	RefreshButton   *widget.Button
-	SettingsButton  *widget.Button
+	Window         fyne.Window
+	StatusIndicator *canvas.Circle
+	StatusLabel    *widget.Label
+	LastSyncLabel  *widget.Label
+	ClipboardText  *widget.Label
+	ErrorText      *widget.RichText
+	PauseButton    *widget.Button
+	RefreshButton  *widget.Button
+	SettingsButton *widget.Button
 
-	State           *UIState
-	Config          *Config
-	OnPauseToggle   func()
-	OnRefresh       func()
+	State         *UIState
+	Config        *Config
+	OnPauseToggle func()
+	OnRefresh     func()
 }
 
 // NewAppUI creates a new application UI
 func NewAppUI(app fyne.App, config *Config) *AppUI {
 	window := app.NewWindow("iclip Client")
-	window.Resize(fyne.NewSize(400, 350))
+	window.Resize(fyne.NewSize(420, 380))
 
 	ui := &AppUI{
 		Window: window,
@@ -60,60 +70,68 @@ func NewAppUI(app fyne.App, config *Config) *AppUI {
 
 // buildUI constructs the UI layout
 func (ui *AppUI) buildUI() {
-	// Status section
-	ui.StatusIcon = widget.NewIcon(theme.MediaRecordIcon())
+	// Status indicator (colored circle)
+	ui.StatusIndicator = canvas.NewCircle(colorPaused)
+	ui.StatusIndicator.StrokeWidth = 0
+	indicatorContainer := container.NewWithoutLayout(ui.StatusIndicator)
+	indicatorContainer.Resize(fyne.NewSize(12, 12))
+	ui.StatusIndicator.Resize(fyne.NewSize(12, 12))
+	ui.StatusIndicator.Move(fyne.NewPos(0, 4))
+
+	// Status label
 	ui.StatusLabel = widget.NewLabel("Starting")
-	statusContainer := container.NewHBox(
-		widget.NewLabel("Status:"),
-		ui.StatusIcon,
-		ui.StatusLabel,
-	)
+	ui.StatusLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	// Last sync time
-	ui.LastSyncLabel = widget.NewLabel("Never")
-	lastSyncContainer := container.NewHBox(
-		widget.NewLabel("Last sync:"),
+	ui.LastSyncLabel = widget.NewLabel("--:--:--")
+
+	// Status row with indicator
+	statusRow := container.NewHBox(
+		container.NewWithoutLayout(ui.StatusIndicator),
+		container.NewPadded(ui.StatusLabel),
+		layout.NewSpacer(),
+		widget.NewLabel("Last:"),
 		ui.LastSyncLabel,
 	)
+	// Make indicator container proper size
+	statusRow.Objects[0].(*fyne.Container).Resize(fyne.NewSize(16, 20))
 
-	// Error label
-	ui.ErrorLabel = widget.NewLabel("")
-	ui.ErrorLabel.Wrapping = fyne.TextWrapWord
+	// Status card content
+	statusContent := container.NewVBox(statusRow)
 
-	// Top status section
-	topSection := container.NewVBox(
-		statusContainer,
-		lastSyncContainer,
-		ui.ErrorLabel,
-	)
+	// Status card
+	statusCard := widget.NewCard("Status", "", statusContent)
 
-	// Clipboard content section
-	clipboardHeader := widget.NewLabel("Clipboard Content:")
+	// Clipboard content
 	ui.ClipboardText = widget.NewLabel("")
 	ui.ClipboardText.Wrapping = fyne.TextWrapWord
+	ui.ClipboardText.TextStyle = fyne.TextStyle{}
 
 	clipboardScroll := container.NewScroll(ui.ClipboardText)
-	clipboardScroll.SetMinSize(fyne.NewSize(380, 150))
+	clipboardScroll.SetMinSize(fyne.NewSize(380, 120))
 
-	clipboardSection := container.NewBorder(
-		clipboardHeader, nil, nil, nil,
-		clipboardScroll,
-	)
+	// Content card
+	contentCard := widget.NewCard("Clipboard Content", "", clipboardScroll)
 
-	// Buttons
-	ui.PauseButton = widget.NewButton("Pause", func() {
+	// Error text (using RichText for colored text)
+	ui.ErrorText = widget.NewRichText()
+
+	// Buttons with icons
+	ui.PauseButton = widget.NewButtonWithIcon("Pause", theme.MediaPauseIcon(), func() {
 		if ui.OnPauseToggle != nil {
 			ui.OnPauseToggle()
 		}
 	})
+	ui.PauseButton.Importance = widget.MediumImportance
 
-	ui.RefreshButton = widget.NewButton("Refresh", func() {
+	ui.RefreshButton = widget.NewButtonWithIcon("Refresh", theme.ViewRefreshIcon(), func() {
 		if ui.OnRefresh != nil {
 			ui.OnRefresh()
 		}
 	})
+	ui.RefreshButton.Importance = widget.HighImportance
 
-	ui.SettingsButton = widget.NewButton("Settings", func() {
+	ui.SettingsButton = widget.NewButtonWithIcon("Settings", theme.SettingsIcon(), func() {
 		ui.showSettingsDialog()
 	})
 
@@ -126,12 +144,12 @@ func (ui *AppUI) buildUI() {
 	)
 
 	// Main layout
-	content := container.NewBorder(
-		topSection,
+	content := container.NewVBox(
+		statusCard,
+		ui.ErrorText,
+		contentCard,
+		layout.NewSpacer(),
 		buttonContainer,
-		nil,
-		nil,
-		clipboardSection,
 	)
 
 	ui.Window.SetContent(container.NewPadded(content))
@@ -141,11 +159,17 @@ func (ui *AppUI) buildUI() {
 func (ui *AppUI) UpdateStatus(status string, isRunning bool) {
 	ui.State.Status = status
 	ui.StatusLabel.SetText(status)
-	if isRunning {
-		ui.StatusIcon.SetResource(theme.MediaRecordIcon())
+
+	if ui.State.Paused {
+		ui.StatusIndicator.FillColor = colorPaused
+	} else if ui.State.ErrorMessage != "" {
+		ui.StatusIndicator.FillColor = colorError
+	} else if isRunning {
+		ui.StatusIndicator.FillColor = colorRunning
 	} else {
-		ui.StatusIcon.SetResource(theme.MediaStopIcon())
+		ui.StatusIndicator.FillColor = colorPaused
 	}
+	ui.StatusIndicator.Refresh()
 }
 
 // UpdateLastSync updates the last sync time display
@@ -165,7 +189,26 @@ func (ui *AppUI) UpdateClipboardContent(text string) {
 // UpdateError updates the error message display
 func (ui *AppUI) UpdateError(err string) {
 	ui.State.ErrorMessage = err
-	ui.ErrorLabel.SetText(err)
+	if err != "" {
+		ui.ErrorText.Segments = []widget.RichTextSegment{
+			&widget.TextSegment{
+				Text: err,
+				Style: widget.RichTextStyle{
+					ColorName: theme.ColorNameError,
+					TextStyle: fyne.TextStyle{Bold: true},
+				},
+			},
+		}
+		ui.StatusIndicator.FillColor = colorError
+		ui.StatusIndicator.Refresh()
+	} else {
+		ui.ErrorText.Segments = nil
+		if !ui.State.Paused {
+			ui.StatusIndicator.FillColor = colorRunning
+			ui.StatusIndicator.Refresh()
+		}
+	}
+	ui.ErrorText.Refresh()
 }
 
 // SetPaused updates the paused state
@@ -173,10 +216,31 @@ func (ui *AppUI) SetPaused(paused bool) {
 	ui.State.Paused = paused
 	if paused {
 		ui.PauseButton.SetText("Resume")
+		ui.PauseButton.SetIcon(theme.MediaPlayIcon())
+		ui.StatusIndicator.FillColor = colorPaused
+		ui.StatusIndicator.Refresh()
 		ui.UpdateStatus("Paused", false)
 	} else {
 		ui.PauseButton.SetText("Pause")
+		ui.PauseButton.SetIcon(theme.MediaPauseIcon())
+		if ui.State.ErrorMessage == "" {
+			ui.StatusIndicator.FillColor = colorRunning
+			ui.StatusIndicator.Refresh()
+		}
 		ui.UpdateStatus("Running", true)
+	}
+}
+
+// SetSyncing shows syncing status
+func (ui *AppUI) SetSyncing(syncing bool) {
+	if syncing && !ui.State.Paused && ui.State.ErrorMessage == "" {
+		ui.StatusIndicator.FillColor = colorSyncing
+		ui.StatusIndicator.Refresh()
+		ui.StatusLabel.SetText("Syncing...")
+	} else if !ui.State.Paused && ui.State.ErrorMessage == "" {
+		ui.StatusIndicator.FillColor = colorRunning
+		ui.StatusIndicator.Refresh()
+		ui.StatusLabel.SetText("Running")
 	}
 }
 

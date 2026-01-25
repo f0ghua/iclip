@@ -2,15 +2,25 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+)
+
+// Status colors
+var (
+	colorMonitoring = color.NRGBA{R: 76, G: 175, B: 80, A: 255}  // Green
+	colorReceiving  = color.NRGBA{R: 255, G: 193, B: 7, A: 255}  // Yellow/Amber
+	colorError      = color.NRGBA{R: 244, G: 67, B: 54, A: 255}  // Red
+	colorPaused     = color.NRGBA{R: 158, G: 158, B: 158, A: 255} // Gray
 )
 
 // UIState holds the current UI state
@@ -26,24 +36,24 @@ type UIState struct {
 // AppUI holds all UI components
 type AppUI struct {
 	Window          fyne.Window
+	StatusIndicator *canvas.Circle
 	StatusLabel     *widget.Label
-	StatusIcon      *widget.Icon
 	FromLabel       *widget.Label
 	LastRecvLabel   *widget.Label
 	ContentText     *widget.Label
-	ErrorLabel      *widget.Label
+	ErrorText       *widget.RichText
 	PauseButton     *widget.Button
 	SettingsButton  *widget.Button
 
-	State           *UIState
-	Config          *Config
-	OnPauseToggle   func()
+	State         *UIState
+	Config        *Config
+	OnPauseToggle func()
 }
 
 // NewAppUI creates a new application UI
 func NewAppUI(app fyne.App, config *Config) *AppUI {
 	window := app.NewWindow("iclip Server")
-	window.Resize(fyne.NewSize(400, 350))
+	window.Resize(fyne.NewSize(420, 380))
 
 	ui := &AppUI{
 		Window: window,
@@ -60,62 +70,68 @@ func NewAppUI(app fyne.App, config *Config) *AppUI {
 
 // buildUI constructs the UI layout
 func (ui *AppUI) buildUI() {
-	// Status section
-	ui.StatusIcon = widget.NewIcon(theme.MediaRecordIcon())
+	// Status indicator (colored circle)
+	ui.StatusIndicator = canvas.NewCircle(colorPaused)
+	ui.StatusIndicator.StrokeWidth = 0
+	indicatorContainer := container.NewWithoutLayout(ui.StatusIndicator)
+	indicatorContainer.Resize(fyne.NewSize(12, 12))
+	ui.StatusIndicator.Resize(fyne.NewSize(12, 12))
+	ui.StatusIndicator.Move(fyne.NewPos(0, 4))
+
+	// Status label
 	ui.StatusLabel = widget.NewLabel("Starting")
-	statusContainer := container.NewHBox(
-		widget.NewLabel("Status:"),
-		ui.StatusIcon,
-		ui.StatusLabel,
+	ui.StatusLabel.TextStyle = fyne.TextStyle{Bold: true}
+
+	// Last received time
+	ui.LastRecvLabel = widget.NewLabel("--:--:--")
+
+	// Status row with indicator
+	statusRow := container.NewHBox(
+		container.NewWithoutLayout(ui.StatusIndicator),
+		container.NewPadded(ui.StatusLabel),
+		layout.NewSpacer(),
+		widget.NewLabel("Last:"),
+		ui.LastRecvLabel,
 	)
+	// Make indicator container proper size
+	statusRow.Objects[0].(*fyne.Container).Resize(fyne.NewSize(16, 20))
 
 	// From label
 	ui.FromLabel = widget.NewLabel("-")
-	fromContainer := container.NewHBox(
+	fromRow := container.NewHBox(
 		widget.NewLabel("From:"),
 		ui.FromLabel,
 	)
 
-	// Last received time
-	ui.LastRecvLabel = widget.NewLabel("Never")
-	lastRecvContainer := container.NewHBox(
-		widget.NewLabel("Last received:"),
-		ui.LastRecvLabel,
-	)
+	// Status card content
+	statusContent := container.NewVBox(statusRow, fromRow)
 
-	// Error label
-	ui.ErrorLabel = widget.NewLabel("")
-	ui.ErrorLabel.Wrapping = fyne.TextWrapWord
+	// Status card
+	statusCard := widget.NewCard("Status", "", statusContent)
 
-	// Top status section
-	topSection := container.NewVBox(
-		statusContainer,
-		fromContainer,
-		lastRecvContainer,
-		ui.ErrorLabel,
-	)
-
-	// Received content section
-	contentHeader := widget.NewLabel("Received Content:")
+	// Received content
 	ui.ContentText = widget.NewLabel("")
 	ui.ContentText.Wrapping = fyne.TextWrapWord
+	ui.ContentText.TextStyle = fyne.TextStyle{}
 
 	contentScroll := container.NewScroll(ui.ContentText)
-	contentScroll.SetMinSize(fyne.NewSize(380, 130))
+	contentScroll.SetMinSize(fyne.NewSize(380, 110))
 
-	contentSection := container.NewBorder(
-		contentHeader, nil, nil, nil,
-		contentScroll,
-	)
+	// Content card
+	contentCard := widget.NewCard("Received Content", "", contentScroll)
 
-	// Buttons
-	ui.PauseButton = widget.NewButton("Pause", func() {
+	// Error text (using RichText for colored text)
+	ui.ErrorText = widget.NewRichText()
+
+	// Buttons with icons
+	ui.PauseButton = widget.NewButtonWithIcon("Pause", theme.MediaPauseIcon(), func() {
 		if ui.OnPauseToggle != nil {
 			ui.OnPauseToggle()
 		}
 	})
+	ui.PauseButton.Importance = widget.MediumImportance
 
-	ui.SettingsButton = widget.NewButton("Settings", func() {
+	ui.SettingsButton = widget.NewButtonWithIcon("Settings", theme.SettingsIcon(), func() {
 		ui.showSettingsDialog()
 	})
 
@@ -127,12 +143,12 @@ func (ui *AppUI) buildUI() {
 	)
 
 	// Main layout
-	content := container.NewBorder(
-		topSection,
+	content := container.NewVBox(
+		statusCard,
+		ui.ErrorText,
+		contentCard,
+		layout.NewSpacer(),
 		buttonContainer,
-		nil,
-		nil,
-		contentSection,
 	)
 
 	ui.Window.SetContent(container.NewPadded(content))
@@ -142,11 +158,17 @@ func (ui *AppUI) buildUI() {
 func (ui *AppUI) UpdateStatus(status string, isRunning bool) {
 	ui.State.Status = status
 	ui.StatusLabel.SetText(status)
-	if isRunning {
-		ui.StatusIcon.SetResource(theme.MediaRecordIcon())
+
+	if ui.State.Paused {
+		ui.StatusIndicator.FillColor = colorPaused
+	} else if ui.State.ErrorMessage != "" {
+		ui.StatusIndicator.FillColor = colorError
+	} else if isRunning {
+		ui.StatusIndicator.FillColor = colorMonitoring
 	} else {
-		ui.StatusIcon.SetResource(theme.MediaStopIcon())
+		ui.StatusIndicator.FillColor = colorPaused
 	}
+	ui.StatusIndicator.Refresh()
 }
 
 // UpdateFrom updates the sender display
@@ -172,7 +194,26 @@ func (ui *AppUI) UpdateReceivedContent(text string) {
 // UpdateError updates the error message display
 func (ui *AppUI) UpdateError(err string) {
 	ui.State.ErrorMessage = err
-	ui.ErrorLabel.SetText(err)
+	if err != "" {
+		ui.ErrorText.Segments = []widget.RichTextSegment{
+			&widget.TextSegment{
+				Text: err,
+				Style: widget.RichTextStyle{
+					ColorName: theme.ColorNameError,
+					TextStyle: fyne.TextStyle{Bold: true},
+				},
+			},
+		}
+		ui.StatusIndicator.FillColor = colorError
+		ui.StatusIndicator.Refresh()
+	} else {
+		ui.ErrorText.Segments = nil
+		if !ui.State.Paused {
+			ui.StatusIndicator.FillColor = colorMonitoring
+			ui.StatusIndicator.Refresh()
+		}
+	}
+	ui.ErrorText.Refresh()
 }
 
 // SetPaused updates the paused state
@@ -180,10 +221,31 @@ func (ui *AppUI) SetPaused(paused bool) {
 	ui.State.Paused = paused
 	if paused {
 		ui.PauseButton.SetText("Resume")
+		ui.PauseButton.SetIcon(theme.MediaPlayIcon())
+		ui.StatusIndicator.FillColor = colorPaused
+		ui.StatusIndicator.Refresh()
 		ui.UpdateStatus("Paused", false)
 	} else {
 		ui.PauseButton.SetText("Pause")
+		ui.PauseButton.SetIcon(theme.MediaPauseIcon())
+		if ui.State.ErrorMessage == "" {
+			ui.StatusIndicator.FillColor = colorMonitoring
+			ui.StatusIndicator.Refresh()
+		}
 		ui.UpdateStatus("Monitoring", true)
+	}
+}
+
+// SetReceiving shows receiving status
+func (ui *AppUI) SetReceiving(receiving bool) {
+	if receiving && !ui.State.Paused && ui.State.ErrorMessage == "" {
+		ui.StatusIndicator.FillColor = colorReceiving
+		ui.StatusIndicator.Refresh()
+		ui.StatusLabel.SetText("Receiving...")
+	} else if !ui.State.Paused && ui.State.ErrorMessage == "" {
+		ui.StatusIndicator.FillColor = colorMonitoring
+		ui.StatusIndicator.Refresh()
+		ui.StatusLabel.SetText("Monitoring")
 	}
 }
 
