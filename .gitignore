@@ -3,6 +3,8 @@ reference/
 
 # Compiled binaries
 iclip_client/iclip_client
+iclip_client_gui/iclip_client_gui
+iclip_server_gui/iclip_server_gui.exe
 
 # Config files with sensitive data
 *.ini
